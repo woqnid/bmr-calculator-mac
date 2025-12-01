@@ -1,44 +1,26 @@
-name: Build macOS App
+name: Build BMR Calculator
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-macos:
     runs-on: macos-latest
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup Python
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
-    - name: Install PyInstaller
-      run: pip install pyinstaller
+    - run: pip install pyinstaller
     
-    - name: Create test app if needed
-      run: |
-        mkdir -p src
-        if [ ! -f "src/bmr_mac_gui.py" ]; then
-          cat > src/bmr_mac_gui.py << 'EOF'
-import tkinter as tk
-from tkinter import ttk, messagebox
-
-root = tk.Tk()
-root.title("BMR Calculator")
-ttk.Label(root, text="GitHub Actions Build Success!").pack(pady=20)
-root.geometry("300x150")
-root.mainloop()
-EOF
-        fi
+    - run: pyinstaller --windowed --name "BMR-Calculator" src/bmr_mac_gui.py
     
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --windowed --name "BMR计算器" src/bmr_mac_gui.py
-    
-    - name: Upload App
-      uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v4
       with:
-        name: BMR-App
-        path: dist/BMR计算器.app
+        name: BMR-Calculator-macOS
+        path: dist/BMR-Calculator.app
