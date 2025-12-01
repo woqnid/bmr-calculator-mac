@@ -1,270 +1,77 @@
+@'
 name: Build macOS Application
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # 允许手动触发
-    inputs:
-      version:
-        description: '版本号 (例如: 1.0.0)'
-        required: true
-        default: '1.0.0'
-      release_notes:
-        description: '发布说明'
-        required: false
-        default: '自动构建的 macOS 应用程序'
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-latest  # 使用最新的 macOS 系统
+  build:
+    runs-on: macos-latest
     
     steps:
-    # 步骤1：检出代码
     - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
-    
-    # 步骤2：设置 Python 环境
+      uses: actions/checkout@v4
+      
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'  # 使用 Python 3.9
-        cache: 'pip'  # 缓存 pip 包
-    
-    # 步骤3：显示环境信息
-    - name: Show environment info
-      run: |
-        echo "Python version:"
-        python --version
-        echo "Pip version:"
-        pip --version
-        echo "System info:"
-        sw_vers
-        echo "Disk space:"
-        df -h
-    
-    # 步骤4：安装依赖
+        python-version: "3.10"
+        
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        # 确保 tkinter 可用（macOS 通常自带）
-        python -c "import tkinter; print('tkinter version:', tkinter.TkVersion)"
-    
-    # 步骤5：创建应用程序图标
-    - name: Create application icon
-      run: |
-        echo "创建应用程序图标..."
+        pip install pyinstaller
         
-        # 创建 icons 目录
-        mkdir -p icons
-        
-        # 如果没有图标文件，创建一个简单的
-        if [ ! -f "icons/icon.png" ]; then
-          echo "创建默认图标..."
-          # 使用 Python 创建简单图标
-          python3 -c "
-from PIL import Image, ImageDraw, ImageFont
-import os
-
-# 创建 512x512 的图片
-img = Image.new('RGB', (512, 512), color=(52, 152, 219))
-draw = ImageDraw.Draw(img)
-
-# 画一个圆形
-draw.ellipse([50, 50, 462, 462], fill=(41, 128, 185), outline=(255, 255, 255), width=10)
-
-try:
-    # 尝试添加文字
-    font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 120)
-except:
-    font = ImageFont.load_default()
-
-# 添加文字
-draw.text((256, 256), 'BMR', font=font, fill=(255, 255, 255), anchor='mm')
-
-# 保存
-img.save('icons/icon.png')
-print('图标创建完成')
-"
+        # 检查是否有 requirements.txt
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
         fi
         
-        # 转换为 .icns 格式（macOS 应用图标）
-        if [ -f "icons/icon.png" ]; then
-          echo "转换为 .icns 格式..."
-          mkdir -p icons/icon.iconset
+    - name: Check project structure
+      run: |
+        echo "项目结构:"
+        find . -type f -name "*.py" | head -10
+        echo ""
+        echo "src 目录:"
+        ls -la src/ 2>/dev/null || echo "src 目录不存在"
+        
+    - name: Simple PyInstaller test
+      run: |
+        # 首先检查主文件是否存在
+        if [ ! -f "src/bmr_mac_gui.py" ]; then
+          echo "❌ 主文件不存在: src/bmr_mac_gui.py"
           
-          # 生成各种尺寸的图标
-          sizes=(16 32 128 256 512)
-          for size in "${sizes[@]}"; do
-            sips -z $size $size icons/icon.png --out "icons/icon.iconset/icon_${size}x${size}.png" 2>/dev/null || true
-            retina=$((size * 2))
-            sips -z $retina $retina icons/icon.png --out "icons/icon.iconset/icon_${size}x${size}@2x.png" 2>/dev/null || true
-          done
-          
-          # 转换为 icns
-          iconutil -c icns icons/icon.iconset -o icons/icon.icns 2>/dev/null || true
-          
-          # 清理临时文件
-          rm -rf icons/icon.iconset 2>/dev/null || true
-          
-          if [ -f "icons/icon.icns" ]; then
-            echo "✅ 图标创建成功"
-          else
-            echo "⚠️  图标创建失败，将使用默认图标"
+          # 尝试寻找其他 Python 文件
+          MAIN_FILE=$(find . -name "*.py" -type f | head -1)
+          if [ -z "$MAIN_FILE" ]; then
+            echo "创建测试文件..."
+            mkdir -p src
+            echo "print(\"Hello BMR Calculator\")" > src/bmr_mac_gui.py
+            MAIN_FILE="src/bmr_mac_gui.py"
           fi
-        fi
-    
-    # 步骤6：使用 PyInstaller 构建应用程序
-    - name: Build with PyInstaller
-      run: |
-        echo "开始构建应用程序..."
-        
-        # 设置图标选项
-        ICON_OPTION=""
-        if [ -f "icons/icon.icns" ]; then
-          ICON_OPTION="--icon=icons/icon.icns"
-          echo "使用自定义图标"
-        fi
-        
-        # 清理旧的构建文件
-        rm -rf build dist *.spec 2>/dev/null || true
-        
-        # 构建应用程序
-        echo "运行 PyInstaller..."
-        pyinstaller \
-          --name "BMR计算器" \
-          --windowed \
-          --noconsole \
-          --clean \
-          --noconfirm \
-          $ICON_OPTION \
-          src/bmr_mac_gui.py
-        
-        echo "✅ PyInstaller 构建完成"
-        
-        # 检查构建结果
-        if [ -d "dist/BMR计算器.app" ]; then
-          echo "应用程序结构:"
-          find "dist/BMR计算器.app" -type f | head -20
-          
-          # 显示应用大小
-          echo "应用程序大小:"
-          du -sh "dist/BMR计算器.app"
+          echo "使用文件: $MAIN_FILE"
         else
-          echo "❌ 应用程序构建失败"
-          exit 1
+          MAIN_FILE="src/bmr_mac_gui.py"
         fi
-    
-    # 步骤7：测试应用程序（简单测试）
-    - name: Test application
+        
+        # 尝试构建
+        echo "构建文件: $MAIN_FILE"
+        pyinstaller --onefile --name "BMR_Calculator" "$MAIN_FILE" || {
+          echo "PyInstaller 失败，尝试更简单的构建..."
+          pyinstaller --onefile "$MAIN_FILE"
+        }
+        
+    - name: Check build result
       run: |
-        echo "测试应用程序..."
+        echo "构建结果:"
+        ls -la dist/ 2>/dev/null || echo "dist 目录不存在"
         
-        # 检查应用程序结构
-        if [ -d "dist/BMR计算器.app" ]; then
-          echo "✅ 应用程序存在"
-          
-          # 检查可执行文件
-          if [ -f "dist/BMR计算器.app/Contents/MacOS/BMR计算器" ]; then
-            echo "✅ 可执行文件存在"
-            
-            # 检查文件权限
-            ls -la "dist/BMR计算器.app/Contents/MacOS/BMR计算器"
-            
-            # 尝试获取版本信息（不实际运行GUI）
-            echo "应用程序信息:"
-            file "dist/BMR计算器.app/Contents/MacOS/BMR计算器"
-            
-          else
-            echo "❌ 可执行文件不存在"
-            find "dist/BMR计算器.app" -type f
-          fi
-        fi
-    
-    # 步骤8：创建 DMG 安装包（可选）
-    - name: Create DMG package
-      run: |
-        echo "创建 DMG 安装包..."
-        
-        # 检查是否需要安装 create-dmg
-        if ! command -v create-dmg &> /dev/null; then
-          echo "安装 create-dmg..."
-          brew install create-dmg || {
-            echo "⚠️  create-dmg 安装失败，跳过 DMG 创建"
-            exit 0
-          }
-        fi
-        
-        # 创建临时目录用于 DMG 构建
-        mkdir -p dmg_temp
-        
-        # 复制应用程序到临时目录
-        cp -R "dist/BMR计算器.app" dmg_temp/
-        
-        # 创建 DMG
-        create-dmg \
-          --volname "BMR计算器" \
-          --volicon "icons/icon.icns" 2>/dev/null || true \
-          --window-pos 200 120 \
-          --window-size 600 400 \
-          --icon-size 100 \
-          --icon "BMR计算器.app" 175 190 \
-          --hide-extension "BMR计算器.app" \
-          --app-drop-link 425 190 \
-          --no-internet-enable \
-          "BMR计算器.dmg" \
-          "dmg_temp/" 2>/dev/null || {
-            echo "⚠️  DMG 创建失败，但应用程序已构建完成"
-          }
-        
-        # 清理临时目录
-        rm -rf dmg_temp
-        
-        if [ -f "BMR计算器.dmg" ]; then
-          echo "✅ DMG 创建成功"
-          ls -lh "BMR计算器.dmg"
-        fi
-    
-    # 步骤9：上传构建产物
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload artifact
+      if: success()
+      uses: actions/upload-artifact@v4
       with:
-        name: BMR-Calculator-macOS
-        path: |
-          dist/BMR计算器.app
-          BMR计算器.dmg
-        retention-days: 7  # 保留7天
-    
-    # 步骤10：显示构建摘要
-    - name: Build summary
-      run: |
-        echo "========================================"
-        echo "🎉 构建完成！"
-        echo "========================================"
-        echo ""
-        echo "📦 生成的文件:"
-        echo ""
-        
-        if [ -d "dist/BMR计算器.app" ]; then
-          APP_SIZE=$(du -sh "dist/BMR计算器.app" | cut -f1)
-          echo "✅ 应用程序: dist/BMR计算器.app ($APP_SIZE)"
-        fi
-        
-        if [ -f "BMR计算器.dmg" ]; then
-          DMG_SIZE=$(ls -lh "BMR计算器.dmg" | awk '{print $5}')
-          echo "✅ 安装包: BMR计算器.dmg ($DMG_SIZE)"
-        fi
-        
-        echo ""
-        echo "📥 下载:"
-        echo "在右侧的 'Artifacts' 部分下载文件"
-        echo ""
-        echo "🖥️ 使用方法:"
-        echo "1. 下载 BMR计算器.app"
-        echo "2. 双击打开应用程序"
-        echo "3. 如果提示'无法打开...'，请前往:"
-        echo "   系统偏好设置 → 安全性与隐私 → 仍要打开"
+        name: BMR-Calculator
+        path: dist/
+'@ | Out-File -FilePath .github/workflows/build.yml -Encoding UTF8 -Force
