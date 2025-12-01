@@ -74,4 +74,3 @@ jobs:
       with:
         name: BMR-Calculator
         path: dist/
-'@ | Out-File -FilePath .github/workflows/build.yml -Encoding UTF8 -Force
